@@ -60,7 +60,7 @@ function setup() {
     ny: createVector(0, -1)
   }
 
-  // setupOsc(incomingPort, outgoingPort, connect_to_this_ip);
+  setupOsc(incomingPort, outgoingPort, connect_to_this_ip);
 
   for (var i = 0; i < 8; i++) {
     sliders[i] = createSlider(0, 10, 5);
@@ -124,13 +124,14 @@ function draw() {
   line(x, y, agent.pos.x, agent.pos.y);
 }
 
-// function receiveOsc(address, value) {
-//   console.log("received OSC: " + address + ", " + value);
+function receiveOsc(address, value) {
+  console.log("received OSC: " + address + ", " + value);
 
-//   address = address.split('/');
+  address = address.split('/');
 
-//   if (address[1] == 'LMA') {
-//     LMA[address[2]][address[3]];
-//   }
-  
-// }
+  if (address[1] == 'LMA') {
+    LMA[address[2]][address[3]] = value;
+  }
+
+  sliders[0].value(LMA.effort.space * 10);
+}
