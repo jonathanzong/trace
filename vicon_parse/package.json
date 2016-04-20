@@ -4,7 +4,9 @@
   "description": "",
   "main": "parse_stream.js",
   "dependencies": {
+    "create-oi": "dijs/create-oi",
     "osc": "^2.0.3",
+    "serialport": "^2.1.0",
     "vectors": "^0.1.0"
   },
   "devDependencies": {},

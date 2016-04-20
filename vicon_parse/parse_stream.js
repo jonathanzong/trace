@@ -79,17 +79,17 @@ var div = require('vectors/div')(3);
 var copy = require('vectors/copy')(3);
 var mag = require('vectors/mag')(3);
 
-// function avg(vecs) {
-//   if (vecs && vecs.length) {
-//     var sum = [0, 0, 0];
-//     for (var i = 0; i < vecs.length; i++) {
-//       add(sum, vecs[i]);
-//     }
-//     div(sum, vecs.length);
-//     return sum;
-//   }
-//   return vecs;
-// }
+function avgVecs(vecs) {
+  if (vecs && vecs.length) {
+    var sum = [0, 0, 0];
+    for (var i = 0; i < vecs.length; i++) {
+      add(sum, vecs[i]);
+    }
+    div(sum, vecs.length);
+    return sum;
+  }
+  return vecs;
+}
 
 function avg(arr) {
   if (arr.length) {
@@ -105,27 +105,87 @@ function avg(arr) {
 
 function updateLMA() {
 
+  var njoints = Object.keys(velocities).length; // should be 9
+  if (!njoints) return;
+
   // LMA.effort.space
-  var njoints = Object.keys(velocities).length;
-  if (njoints) {
-    var vcosines = 0;
-    for (var joint in velocities) {
-      if (!velocities.hasOwnProperty(joint)) continue;
-      var samples = velocities[joint];
-      if (samples.length >= 2) {
-        var jcosines = [];
-        for (var i = 0; i < samples.length - 1; i++) {
-          var cosine = dot(copy(samples[i]), samples[i + 1]) / (mag(samples[i]) * mag(samples[i + 1]));
-          if (cosine)
-            jcosines.push((cosine + 1) / 2);
-        }
-        var jcosine = avg(jcosines);
-        vcosines += jcosine;
+  // velocity cosines
+  var vcosines = 0;
+  for (var joint in velocities) {
+    if (!velocities.hasOwnProperty(joint)) continue;
+    var samples = velocities[joint];
+    if (samples.length >= 2) {
+      var jcosines = [];
+      for (var i = 0; i < samples.length - 1; i++) {
+        var cosine = dot(copy(samples[i]), samples[i + 1]) / (mag(samples[i]) * mag(samples[i + 1]));
+        if (cosine)
+          jcosines.push((cosine + 1) / 2);
       }
+      var jcosine = avg(jcosines);
+      vcosines += jcosine;
     }
-    vcosines /= njoints;
-    LMA.effort.space = vcosines;
   }
+  vcosines /= njoints;
+  LMA.effort.space = vcosines;
+
+  // LMA.effort.weight
+  // accelerations
+  var avgAcc = 0;
+  for (var joint in accelerations) {
+    if (!accelerations.hasOwnProperty(joint)) continue;
+    var samples = accelerations[joint];
+    avgAcc += mag(avgVecs(samples));
+  }
+  avgAcc /= njoints;
+  LMA.effort.weight = avgAcc;
+  // TODO scale to [0, 1]
+
+  // LMA.effort.time
+  // acceleration skew
+  var accSkewDiffs = 0;
+  for (var joint in accelerations) {
+    if (!accelerations.hasOwnProperty(joint)) continue;
+    var samples = accelerations[joint];
+    var oldHalf = 0;
+    var newHalf = 0;
+    var halfway = Math.floor(samples.length / 2);
+    for (var i = 0; i < halfway; i++) {
+      oldHalf += mag(samples[i]);
+      newHalf += mag(samples[i + halfway]);
+    }
+    oldHalf /= halfway;
+    newHalf /= halfway;
+    accSkewDiffs += oldHalf - newHalf;
+  }
+  LMA.effort.time = accSkewDiffs;
+  // TODO scale to [0, 1] (it could be negative right now)
+
+  // LMA.effort.flow
+  // velocities
+  var avgVels = 0;
+  for (var joint in velocities) {
+    if (!velocities.hasOwnProperty(joint)) continue;
+    var samples = velocities[joint];
+    avgVels += mag(avgVecs(samples));
+  }
+  avgVels /= njoints;
+  LMA.effort.flow = avgVels;
+  // TODO scale to [0, 1]
+
+  // LMA.shape.x
+  // horizontal spread
+  var head = avgVecs(positions['2_head']);
+  var leftShoulder = avgVecs(positions['2_left_shoulder']);
+  var rightShoulder = avgVecs(positions['2_right_shoulder']);
+  var horizontal = sub(copy(rightShoulder), leftShoulder);
+  var avghdist = 0;
+  for (var joint in positions) {
+    if (!positions.hasOwnProperty(joint)) continue;
+    var samples = positions[joint];
+    var diff = sub(avgVecs(samples), head);
+    avghdist += Math.abs(dot(diff, horizontal));
+  }
+  avghdist /= njoints;
   
   for (var i in LMA) {
     for (var j in LMA[i]) {
