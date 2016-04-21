@@ -78,6 +78,7 @@ var sub = require('vectors/sub')(3);
 var div = require('vectors/div')(3);
 var copy = require('vectors/copy')(3);
 var mag = require('vectors/mag')(3);
+var cross = require('vectors/cross')(3);
 
 function avgVecs(vecs) {
   if (vecs && vecs.length) {
@@ -103,10 +104,11 @@ function avg(arr) {
   return 0;
 }
 
+// TODO refactor this like wow seriously
 function updateLMA() {
 
-  var njoints = Object.keys(velocities).length; // should be 9
-  if (!njoints) return;
+  var njoints = Object.keys(velocities).length;
+  if (njoints !== 9) return;
 
   // LMA.effort.space
   // velocity cosines
@@ -172,28 +174,61 @@ function updateLMA() {
   LMA.effort.flow = avgVels;
   // TODO scale to [0, 1]
 
-  // LMA.shape.x
-  // horizontal spread
+  // LMA.shape.x, y, z
+  // spread
   var head = avgVecs(positions['2_head']);
   var leftShoulder = avgVecs(positions['2_left_shoulder']);
   var rightShoulder = avgVecs(positions['2_right_shoulder']);
   var horizontal = sub(copy(rightShoulder), leftShoulder);
   var avghdist = 0;
+  var l2h = sub(copy(head), leftShoulder);
+  var r2h = sub(copy(head), rightShoulder);
+  var vertical = add(copy(l2h), r2h);
+  var avgvdist = 0;
+  var sagittal = cross(l2h, r2h);
+  var avgzdist = 0;
   for (var joint in positions) {
     if (!positions.hasOwnProperty(joint)) continue;
     var samples = positions[joint];
     var diff = sub(avgVecs(samples), head);
     avghdist += Math.abs(dot(diff, horizontal));
+    avgvdist += Math.abs(dot(diff, vertical));
+    avgzdist += Math.abs(dot(diff, sagittal));
   }
   avghdist /= njoints;
+  LMA.shape.x = avghdist;
+  avgvdist /= njoints;
+  LMA.shape.y = avgvdist;
+  avgzdist /= njoints;
+  LMA.shape.z = avgzdist;
+  // TODO scale to [0, 1]
+
+  // LMA.space.reach
+  var maxDist = 0;
+  for (var joint1 in positions) {
+    if (!positions.hasOwnProperty(joint1)) continue;
+    var avg1 = avgVecs(positions[joint1]);
+    for (var joint2 in positions) {
+      if (!positions.hasOwnProperty(joint2)) continue;
+      if (joint2 == joint1) continue;
+      var avg2 = avgVecs(positions[joint2]);
+      var dist = Math.abs(mag(sub(copy(avg1), avg2)));
+      if (dist > maxDist)
+        maxDist = dist;
+    }
+  }
+  LMA.space.reach = maxDist;
+  // TODO scale to [0, 1]
   
   for (var i in LMA) {
     for (var j in LMA[i]) {
       // Send an OSC message to localhost:3333
-      udpPort.send({
+      var payload = {
         address: "/LMA/" + i + "/" + j,
         args: [LMA[i][j]]
-      }, "127.0.0.1", 3333);
+      };
+      console.log(JSON.stringify(payload));
+      udpPort.send(payload, "127.0.0.1", 3333);
     }
   }
 }
