@@ -180,20 +180,23 @@ function updateLMA() {
   var leftShoulder = avgVecs(positions['2_left_shoulder']);
   var rightShoulder = avgVecs(positions['2_right_shoulder']);
   var horizontal = sub(copy(rightShoulder), leftShoulder);
+  var mh = mag(horizontal);
   var avghdist = 0;
   var l2h = sub(copy(head), leftShoulder);
   var r2h = sub(copy(head), rightShoulder);
   var vertical = add(copy(l2h), r2h);
+  var mv = mag(vertical);
   var avgvdist = 0;
   var sagittal = cross(l2h, r2h);
+  var ms = mag(sagittal);
   var avgzdist = 0;
   for (var joint in positions) {
     if (!positions.hasOwnProperty(joint)) continue;
     var samples = positions[joint];
     var diff = sub(avgVecs(samples), head);
-    avghdist += Math.abs(dot(diff, horizontal));
-    avgvdist += Math.abs(dot(diff, vertical));
-    avgzdist += Math.abs(dot(diff, sagittal));
+    avghdist += Math.abs(dot(diff, horizontal)) / mh;
+    avgvdist += Math.abs(dot(diff, vertical)) / mv;
+    avgzdist += Math.abs(dot(diff, sagittal)) / ms;
   }
   avghdist /= njoints;
   LMA.shape.x = avghdist;
