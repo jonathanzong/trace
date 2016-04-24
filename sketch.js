@@ -81,17 +81,17 @@ function draw() {
   LMA.space.reach = sliders[7].value() / 10;
 
   // map update rate to Time
-  millisToUpdate = Math.pow(1 - LMA.effort.time, 4) * 500;
+  millisToUpdate = Math.pow(1 - LMA.effort.time, 4) * 100;
 
-  if (millis() - lastMove < millisToUpdate) return;
+  // if (millis() - lastMove < millisToUpdate) return;
   lastMove = millis();
 
   // update depth using Weight and z of Shape
-  agent.d = 5 * (LMA.effort.weight + LMA.shape.z) + 1;
+  agent.d = 2.5 * (LMA.effort.weight + LMA.shape.z) + 1;
 
   // update rotational speed
   // interpolation of w and pstep with Space, then divide by Reach
-  agent.w = Math.pow(1 - LMA.effort.space, 2) * (noise((1 - LMA.effort.space) * pstep * p++) - 0.5) / (5 * (LMA.space.reach + 0.1));
+  agent.w = Math.pow(1 - LMA.effort.space, 1.5) * (noise((1 - LMA.effort.space) * pstep * p++) - 0.5) / ((LMA.space.reach + 0.05));
 
   // update velocity direction
   agent.v.rotate(agent.w);
@@ -125,13 +125,20 @@ function draw() {
 }
 
 function receiveOsc(address, value) {
-  console.log("received OSC: " + address + ", " + value);
+  // console.log("received OSC: " + address + ", " + value);
 
   address = address.split('/');
 
   if (address[1] == 'LMA') {
-    LMA[address[2]][address[3]] = value;
+    LMA[address[2]][address[3]] = value[0];
   }
 
   sliders[0].value(LMA.effort.space * 10);
+  sliders[1].value(LMA.effort.weight * 10);
+  sliders[2].value(LMA.effort.time * 10);
+  sliders[3].value(LMA.effort.flow * 10);
+  sliders[4].value(LMA.shape.x * 10);
+  sliders[5].value(LMA.shape.y * 10);
+  sliders[6].value(LMA.shape.z * 10);
+  sliders[7].value(LMA.space.reach * 10);
 }

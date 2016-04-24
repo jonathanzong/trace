@@ -16,6 +16,8 @@ var stream = spawn('./ViconDataStreamSDK_CPPTest', ['169.254.215.174:801']);
 
 var SAMPLE_SIZE = 20;
 
+var AVG_HEIGHT = 1700; // 5ft 6in, converted to mm
+
 var positions = {};
 var velocities = {};
 var accelerations = {};
@@ -72,12 +74,47 @@ var LMA = {
   }
 }
 
+var minLMA = {
+  effort: {
+    space: 9999999999, // [indirect, direct]
+    weight: 9999999999, // [light, strong]
+    time: 9999999999, // [sustained, sudden]
+    flow: 9999999999 // [free, bound]
+  }, // in [0, 1]
+  shape: {
+    x: 9999999999, // horizontal [enclosing, spreading]
+    y: 9999999999, // vertical [sinking, rising]
+    z: 9999999999 // sagittal [retreating, advancing]
+  }, // in [0, 1]
+  space: {
+    reach: 9999999999 // near/mid/far in [0, 1]
+  }
+}
+
+var maxLMA = {
+  effort: {
+    space: -99999999, // [indirect, direct]
+    weight: -99999999, // [light, strong]
+    time: -99999999, // [sustained, sudden]
+    flow: -99999999 // [free, bound]
+  }, // in [0, 1]
+  shape: {
+    x: -99999999, // horizontal [enclosing, spreading]
+    y: -99999999, // vertical [sinking, rising]
+    z: -99999999 // sagittal [retreating, advancing]
+  }, // in [0, 1]
+  space: {
+    reach: -99999999 // near/mid/far in [0, 1]
+  }
+}
+
 var dot = require('vectors/dot')(3);
 var add = require('vectors/add')(3);
 var sub = require('vectors/sub')(3);
 var div = require('vectors/div')(3);
 var copy = require('vectors/copy')(3);
-var mag = require('vectors/mag')(3);
+var vmag = require('vectors/mag')(3);
+var mag = function(v) {return Math.abs(vmag(v));}
 var cross = require('vectors/cross')(3);
 
 function avgVecs(vecs) {
@@ -102,6 +139,12 @@ function avg(arr) {
     return sum;
   }
   return 0;
+}
+
+function clamp(i) {
+  if (i < 0) return 0;
+  if (i > 1) return 1;
+  return i;
 }
 
 // TODO refactor this like wow seriously
@@ -139,12 +182,12 @@ function updateLMA() {
     avgAcc += mag(avgVecs(samples));
   }
   avgAcc /= njoints;
-  LMA.effort.weight = avgAcc;
-  // TODO scale to [0, 1]
+  LMA.effort.weight = avgAcc / 10; //TODO magic empirical number
 
   // LMA.effort.time
-  // acceleration skew
+  // acceleration skew (seems related to jerk?)
   var accSkewDiffs = 0;
+  var minDiff = 0;
   for (var joint in accelerations) {
     if (!accelerations.hasOwnProperty(joint)) continue;
     var samples = accelerations[joint];
@@ -157,10 +200,14 @@ function updateLMA() {
     }
     oldHalf /= halfway;
     newHalf /= halfway;
-    accSkewDiffs += oldHalf - newHalf;
+    var skewDiff = oldHalf - newHalf;
+    if (minDiff > skewDiff)
+      minDiff = skewDiff;
+    accSkewDiffs += skewDiff;
   }
-  LMA.effort.time = accSkewDiffs;
-  // TODO scale to [0, 1] (it could be negative right now)
+  accSkewDiffs /= njoints;
+  accSkewDiffs -= minDiff; // make positive
+  LMA.effort.time = Math.sqrt(accSkewDiffs); //TODO lol magic i'm literally guessing
 
   // LMA.effort.flow
   // velocities
@@ -171,8 +218,7 @@ function updateLMA() {
     avgVels += mag(avgVecs(samples));
   }
   avgVels /= njoints;
-  LMA.effort.flow = avgVels;
-  // TODO scale to [0, 1]
+  LMA.effort.flow = 1 - (avgVels / 20); // TODO magic number
 
   // LMA.shape.x, y, z
   // spread
@@ -189,22 +235,21 @@ function updateLMA() {
   var avgvdist = 0;
   var sagittal = cross(l2h, r2h);
   var ms = mag(sagittal);
-  var avgzdist = 0;
+  var avgsdist = 0;
   for (var joint in positions) {
     if (!positions.hasOwnProperty(joint)) continue;
     var samples = positions[joint];
     var diff = sub(avgVecs(samples), head);
     avghdist += Math.abs(dot(diff, horizontal)) / mh;
     avgvdist += Math.abs(dot(diff, vertical)) / mv;
-    avgzdist += Math.abs(dot(diff, sagittal)) / ms;
+    avgsdist += Math.abs(dot(diff, sagittal)) / ms;
   }
   avghdist /= njoints;
-  LMA.shape.x = avghdist;
+  avgsdist /= njoints;
   avgvdist /= njoints;
-  LMA.shape.y = avgvdist;
-  avgzdist /= njoints;
-  LMA.shape.z = avgzdist;
-  // TODO scale to [0, 1]
+  LMA.shape.x = avghdist / (AVG_HEIGHT / 2);
+  LMA.shape.y = avgsdist / (AVG_HEIGHT / 2);
+  LMA.shape.z = avgvdist / (AVG_HEIGHT * 2 / 3);
 
   // LMA.space.reach
   var maxDist = 0;
@@ -215,23 +260,35 @@ function updateLMA() {
       if (!positions.hasOwnProperty(joint2)) continue;
       if (joint2 == joint1) continue;
       var avg2 = avgVecs(positions[joint2]);
-      var dist = Math.abs(mag(sub(copy(avg1), avg2)));
+      var dist = mag(sub(copy(avg1), avg2));
       if (dist > maxDist)
         maxDist = dist;
     }
   }
-  LMA.space.reach = maxDist;
-  // TODO scale to [0, 1]
+  LMA.space.reach = maxDist / AVG_HEIGHT;
   
   for (var i in LMA) {
     for (var j in LMA[i]) {
       // Send an OSC message to localhost:3333
-      var payload = {
-        address: "/LMA/" + i + "/" + j,
-        args: [LMA[i][j]]
-      };
-      console.log(JSON.stringify(payload));
-      udpPort.send(payload, "127.0.0.1", 3333);
+      if (LMA[i][j]) {
+        LMA[i][j] = clamp(LMA[i][j]); // clamp to [0, 1]
+        //
+        // if (LMA[i][j] < minLMA[i][j]) {
+        //   minLMA[i][j] = LMA[i][j];
+        // }
+        // else if (LMA[i][j] > maxLMA[i][j]) {
+        //   maxLMA[i][j] = LMA[i][j];
+        // }
+        // console.log(JSON.stringify(minLMA, null, 2));
+        // console.log(JSON.stringify(maxLMA, null, 2));
+        //
+        var payload = {
+          address: "/LMA/" + i + "/" + j,
+          args: LMA[i][j]
+        };
+        console.log(JSON.stringify(payload));
+        udpPort.send(payload, "127.0.0.1", 3333);
+      }
     }
   }
 }
