@@ -7,9 +7,10 @@ var robot = require("create-oi");
 robot.init({ serialport: "/dev/tty.AdafruitEZ-Link6a25-SPP", version: 2});
 
 robot.on('ready', function() {
+    var r = this;
     // start by going forward
+    r.drive(SPEED, 0);
     console.log('ready');
-    this.rotate(SPEED);
 });
 
 var bumpHndlr = function(bumperEvt) {

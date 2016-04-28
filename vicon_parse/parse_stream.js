@@ -57,56 +57,7 @@ function updateTracking(name, position) {
   }
 }
 
-var LMA = {
-  effort: {
-    space: 0.5, // [indirect, direct]
-    weight: 0.5, // [light, strong]
-    time: 0.5, // [sustained, sudden]
-    flow: 0.5 // [free, bound]
-  }, // in [0, 1]
-  shape: {
-    x: 0.5, // horizontal [enclosing, spreading]
-    y: 0.5, // vertical [sinking, rising]
-    z: 0.5 // sagittal [retreating, advancing]
-  }, // in [0, 1]
-  space: {
-    reach: 0.5 // near/mid/far in [0, 1]
-  }
-}
-
-var minLMA = {
-  effort: {
-    space: 9999999999, // [indirect, direct]
-    weight: 9999999999, // [light, strong]
-    time: 9999999999, // [sustained, sudden]
-    flow: 9999999999 // [free, bound]
-  }, // in [0, 1]
-  shape: {
-    x: 9999999999, // horizontal [enclosing, spreading]
-    y: 9999999999, // vertical [sinking, rising]
-    z: 9999999999 // sagittal [retreating, advancing]
-  }, // in [0, 1]
-  space: {
-    reach: 9999999999 // near/mid/far in [0, 1]
-  }
-}
-
-var maxLMA = {
-  effort: {
-    space: -99999999, // [indirect, direct]
-    weight: -99999999, // [light, strong]
-    time: -99999999, // [sustained, sudden]
-    flow: -99999999 // [free, bound]
-  }, // in [0, 1]
-  shape: {
-    x: -99999999, // horizontal [enclosing, spreading]
-    y: -99999999, // vertical [sinking, rising]
-    z: -99999999 // sagittal [retreating, advancing]
-  }, // in [0, 1]
-  space: {
-    reach: -99999999 // near/mid/far in [0, 1]
-  }
-}
+//
 
 var dot = require('vectors/dot')(3);
 var add = require('vectors/add')(3);
@@ -147,111 +98,14 @@ function clamp(i) {
   return i;
 }
 
-// TODO refactor this like wow seriously
-function updateLMA() {
+var analysis = {};
 
-  var njoints = Object.keys(velocities).length;
+var noise = require('./noise.js');
+
+function updateAnalysis() {
+  var njoints = Object.keys(positions).length;
   if (njoints !== 9) return;
-
-  // LMA.effort.space
-  // velocity cosines
-  var vcosines = 0;
-  for (var joint in velocities) {
-    if (!velocities.hasOwnProperty(joint)) continue;
-    var samples = velocities[joint];
-    if (samples.length >= 2) {
-      var jcosines = [];
-      for (var i = 0; i < samples.length - 1; i++) {
-        var cosine = dot(copy(samples[i]), samples[i + 1]) / (mag(samples[i]) * mag(samples[i + 1]));
-        if (cosine)
-          jcosines.push((cosine + 1) / 2);
-      }
-      var jcosine = avg(jcosines);
-      vcosines += jcosine;
-    }
-  }
-  vcosines /= njoints;
-  LMA.effort.space = vcosines;
-
-  // LMA.effort.weight
-  // accelerations
-  var avgAcc = 0;
-  for (var joint in accelerations) {
-    if (!accelerations.hasOwnProperty(joint)) continue;
-    var samples = accelerations[joint];
-    avgAcc += mag(avgVecs(samples));
-  }
-  avgAcc /= njoints;
-  LMA.effort.weight = avgAcc / 10; //TODO magic empirical number
-
-  // LMA.effort.time
-  // acceleration skew (seems related to jerk?)
-  var accSkewDiffs = 0;
-  var minDiff = 0;
-  for (var joint in accelerations) {
-    if (!accelerations.hasOwnProperty(joint)) continue;
-    var samples = accelerations[joint];
-    var oldHalf = 0;
-    var newHalf = 0;
-    var halfway = Math.floor(samples.length / 2);
-    for (var i = 0; i < halfway; i++) {
-      oldHalf += mag(samples[i]);
-      newHalf += mag(samples[i + halfway]);
-    }
-    oldHalf /= halfway;
-    newHalf /= halfway;
-    var skewDiff = oldHalf - newHalf;
-    if (minDiff > skewDiff)
-      minDiff = skewDiff;
-    accSkewDiffs += skewDiff;
-  }
-  accSkewDiffs /= njoints;
-  accSkewDiffs -= minDiff; // make positive
-  LMA.effort.time = Math.sqrt(accSkewDiffs); //TODO lol magic i'm literally guessing
-
-  // LMA.effort.flow
-  // velocities
-  var avgVels = 0;
-  for (var joint in velocities) {
-    if (!velocities.hasOwnProperty(joint)) continue;
-    var samples = velocities[joint];
-    avgVels += mag(avgVecs(samples));
-  }
-  avgVels /= njoints;
-  LMA.effort.flow = 1 - (avgVels / 20); // TODO magic number
-
-  // LMA.shape.x, y, z
-  // spread
-  var head = avgVecs(positions['2_head']);
-  var leftShoulder = avgVecs(positions['2_left_shoulder']);
-  var rightShoulder = avgVecs(positions['2_right_shoulder']);
-  var horizontal = sub(copy(rightShoulder), leftShoulder);
-  var mh = mag(horizontal);
-  var avghdist = 0;
-  var l2h = sub(copy(head), leftShoulder);
-  var r2h = sub(copy(head), rightShoulder);
-  var vertical = add(copy(l2h), r2h);
-  var mv = mag(vertical);
-  var avgvdist = 0;
-  var sagittal = cross(l2h, r2h);
-  var ms = mag(sagittal);
-  var avgsdist = 0;
-  for (var joint in positions) {
-    if (!positions.hasOwnProperty(joint)) continue;
-    var samples = positions[joint];
-    var diff = sub(avgVecs(samples), head);
-    avghdist += Math.abs(dot(diff, horizontal)) / mh;
-    avgvdist += Math.abs(dot(diff, vertical)) / mv;
-    avgsdist += Math.abs(dot(diff, sagittal)) / ms;
-  }
-  avghdist /= njoints;
-  avgsdist /= njoints;
-  avgvdist /= njoints;
-  LMA.shape.x = avghdist / (AVG_HEIGHT / 2);
-  LMA.shape.y = avgsdist / (AVG_HEIGHT / 2);
-  LMA.shape.z = avgvdist / (AVG_HEIGHT * 2 / 3);
-
-  // LMA.space.reach
+  // reach
   var maxDist = 0;
   for (var joint1 in positions) {
     if (!positions.hasOwnProperty(joint1)) continue;
@@ -260,37 +114,81 @@ function updateLMA() {
       if (!positions.hasOwnProperty(joint2)) continue;
       if (joint2 == joint1) continue;
       var avg2 = avgVecs(positions[joint2]);
-      var dist = mag(sub(copy(avg1), avg2));
+      var dist = Math.abs(mag(sub(copy(avg1), avg2)));
       if (dist > maxDist)
         maxDist = dist;
     }
   }
-  LMA.space.reach = maxDist / AVG_HEIGHT;
-  
-  for (var i in LMA) {
-    for (var j in LMA[i]) {
-      // Send an OSC message to localhost:3333
-      if (LMA[i][j]) {
-        LMA[i][j] = clamp(LMA[i][j]); // clamp to [0, 1]
-        //
-        // if (LMA[i][j] < minLMA[i][j]) {
-        //   minLMA[i][j] = LMA[i][j];
-        // }
-        // else if (LMA[i][j] > maxLMA[i][j]) {
-        //   maxLMA[i][j] = LMA[i][j];
-        // }
-        // console.log(JSON.stringify(minLMA, null, 2));
-        // console.log(JSON.stringify(maxLMA, null, 2));
-        //
-        var payload = {
-          address: "/LMA/" + i + "/" + j,
-          args: LMA[i][j]
-        };
-        console.log(JSON.stringify(payload));
-        udpPort.send(payload, "127.0.0.1", 3333);
-      }
+  analysis.reach = maxDist / 2 / AVG_HEIGHT;
+
+  // velocity
+  var avgVel = 0;
+  for (var joint in velocities) {
+    if (!velocities.hasOwnProperty(joint)) continue;
+    var avg = avgVecs(velocities[joint]);
+    avgVel += mag(avg);
+  }
+  avgVel /= njoints;
+  analysis.velocity = avgVel / 100;
+
+  // height
+  var maxZ = 0;
+  for (var joint in positions) {
+    if (!positions.hasOwnProperty(joint)) continue;
+    var avg = avgVecs(positions[joint]);
+    if (avg[2] > maxZ) {
+      maxZ = avg[2];
     }
   }
+  analysis.height = maxZ / 2 / AVG_HEIGHT;
+
+  // // spread
+  // var head = avgVecs(positions['2_head']);
+  // var leftShoulder = avgVecs(positions['2_left_shoulder']);
+  // var rightShoulder = avgVecs(positions['2_right_shoulder']);
+  // var horizontal = sub(copy(rightShoulder), leftShoulder);
+  // var mh = mag(horizontal);
+  // var avghdist = 0;
+  // var l2h = sub(copy(head), leftShoulder);
+  // var r2h = sub(copy(head), rightShoulder);
+  // var sagittal = cross(l2h, r2h);
+  // var ms = mag(sagittal);
+  // var avgsdist = 0;
+  // for (var joint in positions) {
+  //   if (!positions.hasOwnProperty(joint)) continue;
+  //   var samples = positions[joint];
+  //   var diff = sub(avgVecs(samples), head);
+  //   avghdist += Math.abs(dot(diff, horizontal)) / mh;
+  //   avgsdist += Math.abs(dot(diff, sagittal)) / ms;
+  // }
+  // avghdist /= njoints;
+  // avgsdist /= njoints;
+  // analysis.horizontal = avghdist / AVG_HEIGHT;
+  // analysis.sagittal = avgsdist / AVG_HEIGHT;
+
+  for (var k in analysis) {
+    if (!analysis.hasOwnProperty(k)) continue;
+    analysis[k] = clamp(analysis[k]);
+  }
+
+  updateRobotState();
+}
+
+var robotState = {};
+
+var p = 0;
+var pstep = 0.0001;
+var MAX_SPEED = 250; // mm/s
+//
+function updateRobotState() {
+  // update depth using analysis.height
+  robotState.d = analysis.height;
+
+  // update rotational speed with noise based on analysis.reach
+  robotState.w = 2 * (noise((1 + analysis.reach) * pstep * p++) - 0.5);
+
+  // update velocity magnitude with analysis.velocity
+  robotState.v = MAX_SPEED * analysis.velocity;
 }
 
 var buffer = '';
@@ -310,6 +208,7 @@ stream.stdout.on('data', function(data) {
         buffer = subjects.join('Subject'); // put the partial back into the buffer
         var matches = subject.match(re);
         var name = matches[1].toString().trim();
+        if (name.indexOf("2_") !== 0) continue;
         var position = matches[2].toString().split(', ').map(function(d) {return parseInt(d);});
         updateTracking(name, position);
       }
@@ -321,7 +220,113 @@ stream.stdout.on('data', function(data) {
     indexEnd = buffer.indexOf('Marker #0');
   }
 
-  updateLMA();
+  updateAnalysis();
 });
 
+///////////////////////////////////////////////////////////////////////
 console.log('hello');
+
+// robot stuff
+var robot = require("create-oi");
+
+robot.init({ serialport: "/dev/tty.AdafruitEZ-Link6a25-SPP", version: 2});
+
+// motor stuff
+var SerialPort = require("serialport").SerialPort
+var motor = new SerialPort("/dev/tty.RNBT-8A88-RNI-SPP", {
+  baudrate: 9600
+});
+
+// handlers
+motor.on('open', function () {
+  console.log('motor ready');
+  robot.on('ready', function() {
+    console.log('robot ready');
+    var r = this;
+
+    //cleanup
+    process.stdin.resume(); //so the program will not close instantly
+
+    function exitHandler(options, err) {
+      motor.close(function (err) {
+        if (err) {
+          console.log(err);
+        }
+        console.log('motor port closed');
+        process.exit();
+      });
+      if (err) {
+        console.log(err.stack);
+        process.exit();
+      }
+    }
+
+    //catches ctrl+c event
+    process.on('SIGINT', exitHandler.bind(null, {exit:true}));
+
+    //catches uncaught exceptions
+    process.on('uncaughtException', exitHandler.bind(null, {exit:true}));
+
+    // event loop
+    setInterval(function() {
+      // robot instructions
+      var radius = robotState.w == 0 ? 0 : robotState.v / robotState.w;
+      r.drive(robotState.v, radius);
+      console.log('robot update fired');
+      console.log(JSON.stringify(robotState, null, 2));
+      console.log(radius);
+      // motor instructions
+      var motorPos = (robotState.d * 25) + 25;
+      motor.write(motorPos, function(err, bytesWritten) {
+        if (err) {
+          return console.log('Error: ', err.message);
+        }
+        console.log(bytesWritten, 'bytes written to motor');
+      });
+    }, 1000);
+  });
+
+});
+
+motor.on('close', console.log);
+motor.on('error', console.log);
+motor.on('disconnect', console.log);
+
+var bumpHndlr = function(bumperEvt) {
+    var r = this;
+    
+    // temporarily disable further bump events
+    // getting multiple bump events while one is in progress
+    // will cause weird interleaving of our robot behavior 
+    r.off('bump');
+
+    // backup a bit
+    r.drive(-MAX_SPEED, 0);
+    r.wait(1000);
+
+    // turn based on which bumper sensor got hit
+    switch(bumperEvt.which) {
+        case 'forward': // randomly choose a direction
+            var dir = [-1,1][Math.round(Math.random())];
+            r.rotate(dir*MAX_SPEED);
+            r.wait(2100); // time is in ms
+            break;
+        case 'left':
+            r.rotate(-MAX_SPEED); // turn right
+            r.wait(1000);
+            break;
+        case 'right':
+            r.rotate(MAX_SPEED); // turn left 
+            r.wait(1000);
+            break;
+    }
+
+    // onward!
+    r.drive(MAX_SPEED, 0)
+    .then(function() {
+        // turn handler back on
+        r.on('bump', bumpHndlr);
+    });
+};
+
+robot.on('bump', bumpHndlr);

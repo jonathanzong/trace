@@ -60,7 +60,7 @@ function setup() {
     ny: createVector(0, -1)
   }
 
-  setupOsc(incomingPort, outgoingPort, connect_to_this_ip);
+  // setupOsc(incomingPort, outgoingPort, connect_to_this_ip);
 
   for (var i = 0; i < 8; i++) {
     sliders[i] = createSlider(0, 10, 5);
